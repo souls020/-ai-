@@ -1,0 +1,211 @@
+"""{{ class_name }}
+
+功能: {{ description }}
+使用: python {{ name }}.py
+"""
+
+import json
+import urllib.request
+import urllib.error
+from typing import Any, Dict, List, Optional
+
+
+class {{ class_name }}:
+{% if docstring_style == "google" %}
+    """{{ description }}
+
+    Attributes:
+        name: Agent 名称
+        model: 使用的 LLM 模型
+        history: 对话历史
+    """
+{% elif docstring_style == "numpy" %}
+    """{{ description }}
+
+    Attributes
+    ----------
+    name : str
+        Agent 名称
+    model : str
+        使用的 LLM 模型
+    history : list
+        对话历史
+    """
+{% else %}
+    """{{ description }}
+
+    属性:
+        name: Agent 名称
+        model: 使用的 LLM 模型
+        history: 对话历史
+    """
+{% endif %}
+
+    def __init__(
+        self,
+        api_key: str = "",
+        base_url: str = "https://api.openai.com/v1",
+        model: str = "gpt-3.5-turbo",
+        system_prompt: str = "",
+    ):
+{% if docstring_style == "google" %}
+        """初始化 Agent。
+
+        Args:
+            api_key: LLM API 密钥
+            base_url: API 地址（支持 OpenAI 兼容接口）
+            model: 模型名称
+            system_prompt: 系统提示词
+        """
+{% elif docstring_style == "numpy" %}
+        """初始化 Agent。
+
+        Parameters
+        ----------
+        api_key : str
+            LLM API 密钥
+        base_url : str
+            API 地址（支持 OpenAI 兼容接口）
+        model : str
+            模型名称
+        system_prompt : str
+            系统提示词
+        """
+{% else %}
+        """初始化 Agent。
+
+        参数:
+            api_key: LLM API 密钥
+            base_url: API 地址（支持 OpenAI 兼容接口）
+            model: 模型名称
+            system_prompt: 系统提示词
+        """
+{% endif %}
+        self.name = "{{ name }}"
+        self.description = "{{ description }}"
+        self.api_key = api_key
+        self.base_url = base_url.rstrip("/")
+        self.model = model
+        self.system_prompt = system_prompt or "{{ description }}"
+        self.history: List[Dict[str, str]] = [
+            {"role": "system", "content": self.system_prompt}
+        ]
+
+{% if comment_style == "full" %}
+    # 调用 LLM Chat Completions API
+{% endif %}
+    def _call_api(self, messages: List[Dict[str, str]], stream: bool = False) -> dict:
+        """调用 Chat Completions API"""
+        url = f"{self.base_url}/chat/completions"
+        payload = {
+            "model": self.model,
+            "messages": messages,
+            "temperature": 0.7,
+            "max_tokens": 2048,
+            "stream": stream,
+        }
+        data = json.dumps(payload).encode("utf-8")
+        headers = {"Content-Type": "application/json"}
+        if self.api_key:
+            headers["Authorization"] = f"Bearer {self.api_key}"
+
+        req = urllib.request.Request(url, data=data, headers=headers, method="POST")
+        try:
+            with urllib.request.urlopen(req, timeout=120) as resp:
+                if stream:
+                    return self._read_stream(resp)
+                return json.loads(resp.read().decode("utf-8"))
+        except urllib.error.HTTPError as e:
+            body = e.read().decode("utf-8", errors="replace")
+            raise RuntimeError(f"API 错误 (HTTP {e.code}): {body}") from e
+        except urllib.error.URLError as e:
+            raise RuntimeError(f"无法连接 API: {e.reason}") from e
+
+    def _read_stream(self, resp) -> dict:
+        """处理流式响应"""
+        content = ""
+        for line in resp:
+            line = line.decode("utf-8").strip()
+            if not line or not line.startswith("data: "):
+                continue
+            if line[6:] == "[DONE]":
+                break
+            try:
+                chunk = json.loads(line[6:])
+                delta = chunk["choices"][0].get("delta", {}).get("content", "")
+                if delta:
+                    print(delta, end="", flush=True)
+                    content += delta
+            except (json.JSONDecodeError, KeyError, IndexError):
+                continue
+        print()
+        return {"choices": [{"message": {"role": "assistant", "content": content}}]}
+
+{% if comment_style == "full" %}
+    # 发送消息并获取 LLM 回复
+{% endif %}
+    def run(self, user_input: str, stream: bool = True) -> str:
+{% if docstring_style == "google" %}
+        """运行 Agent 处理用户输入。
+
+        Args:
+            user_input: 用户输入
+            stream: 是否流式输出
+
+        Returns:
+            LLM 的回复
+        """
+{% else %}
+        """运行 Agent 处理用户输入。
+
+        参数:
+            user_input: 用户输入
+            stream: 是否流式输出
+
+        返回:
+            LLM 的回复
+        """
+{% endif %}
+        self.history.append({"role": "user", "content": user_input})
+        result = self._call_api(self.history, stream=stream)
+        reply = result["choices"][0]["message"]["content"]
+        self.history.append({"role": "assistant", "content": reply})
+        return reply
+
+    def clear_history(self):
+        """清空对话历史"""
+        self.history = [{"role": "system", "content": self.system_prompt}]
+
+
+{% if comment_style == "full" %}
+# 使用示例 - 请先设置你的 API Key 和 Base URL
+{% endif %}
+if __name__ == "__main__":
+    import os
+
+    agent = {{ class_name }}(
+        api_key=os.environ.get("LLM_API_KEY", ""),
+        base_url=os.environ.get("LLM_BASE_URL", "https://api.openai.com/v1"),
+        model=os.environ.get("LLM_MODEL", "gpt-3.5-turbo"),
+    )
+
+    print(f"🤖 {agent.name} 已启动 (模型: {agent.model})")
+    print("   输入 /exit 退出\n")
+
+    while True:
+        try:
+            user_input = input("你 > ")
+        except (EOFError, KeyboardInterrupt):
+            print("\n👋 再见！")
+            break
+        if not user_input.strip():
+            continue
+        if user_input.strip() in ("/exit", "/quit"):
+            print("👋 再见！")
+            break
+        print(f"\n{agent.name} > ", end="")
+        try:
+            agent.run(user_input, stream=True)
+        except RuntimeError as e:
+            print(f"\n❌ {e}")
+        print()
